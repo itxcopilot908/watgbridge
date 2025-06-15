@@ -102,46 +102,69 @@ func NewWhatsAppClient() error {
 	client := whatsmeow.NewClient(deviceStore, waClientLogger)
 	state.State.WhatsAppClient = client
 
+	// --------- FIX: Pair code or QR code logic begins here ---------
+	waConf := state.State.Config.WhatsApp
 	if client.Store.ID == nil {
-		qrChan, _ := client.GetQRChannel(context.Background())
-		err = client.Connect()
-		if err != nil {
-			return fmt.Errorf("could not connect to Whatsapp for login : %s", err)
-		}
-		for evt := range qrChan {
-			if evt.Event == "code" {
-				// var png []byte
-				// png, _err := qrcode.Encode("aklsdfjasdfaklsdfjlasdfjaskldfjasldfjaklsdfjals", qrcode.Highest, 256)
-				// if _err != nil {
-				// 	panic(_err)
-				// }
-
-				if state.State.TelegramBot != nil {
-					qrCodePNG, err := qrcode.Encode(evt.Code, qrcode.Highest, 512)
-					if err != nil {
-						state.State.TelegramBot.SendMessage(
-							state.State.Config.Telegram.OwnerID,
-							fmt.Sprintf(
-								"Please check your terminal and scan the QR code to login to WhatsApp. Failed to encode to PNG and send here:\n<code>%s</code>",
-								html.EscapeString(err.Error()),
-							),
-							&gotgbot.SendMessageOpts{},
-						)
-					} else {
-						state.State.TelegramBot.SendPhoto(
-							state.State.Config.Telegram.OwnerID,
-							gotgbot.InputFileByReader("qrcode.png", bytes.NewReader(qrCodePNG)),
-							&gotgbot.SendPhotoOpts{
-								Caption: "Scan the above QR code to login to WhatsApp.",
-							},
-						)
-					}
-				}
-				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
-			} else {
-				logger.Info("received WhatsApp login event",
-					zap.Any("event", evt.Event),
+		// Use pair code if enabled and phone number is set
+		if waConf.UsePairCode && waConf.PhoneNumber != "" {
+			code, err := client.PairPhone(
+				context.Background(),
+				waConf.PhoneNumber,
+				true, // show push notifications
+				whatsmeow.PairClientBrowser,
+				"Chrome (Linux)",
+			)
+			if err != nil {
+				return fmt.Errorf("could not pair phone: %w", err)
+			}
+			if state.State.TelegramBot != nil {
+				state.State.TelegramBot.SendMessage(
+					state.State.Config.Telegram.OwnerID,
+					fmt.Sprintf(
+						"WhatsApp pairing code: <b>%s</b>\n\nEnter this code in your WhatsApp app (Settings > Linked Devices > Link a device) to complete login.",
+						code,
+					),
+					&gotgbot.SendMessageOpts{ParseMode: "HTML"},
 				)
+			} else {
+				fmt.Println("WhatsApp pairing code:", code)
+			}
+			return nil // Wait for user to complete pairing in their WhatsApp app
+		} else {
+			qrChan, _ := client.GetQRChannel(context.Background())
+			err = client.Connect()
+			if err != nil {
+				return fmt.Errorf("could not connect to Whatsapp for login : %s", err)
+			}
+			for evt := range qrChan {
+				if evt.Event == "code" {
+					if state.State.TelegramBot != nil {
+						qrCodePNG, err := qrcode.Encode(evt.Code, qrcode.Highest, 512)
+						if err != nil {
+							state.State.TelegramBot.SendMessage(
+								state.State.Config.Telegram.OwnerID,
+								fmt.Sprintf(
+									"Please check your terminal and scan the QR code to login to WhatsApp. Failed to encode to PNG and send here:\n<code>%s</code>",
+									html.EscapeString(err.Error()),
+								),
+								&gotgbot.SendMessageOpts{},
+							)
+						} else {
+							state.State.TelegramBot.SendPhoto(
+								state.State.Config.Telegram.OwnerID,
+								gotgbot.InputFileByReader("qrcode.png", bytes.NewReader(qrCodePNG)),
+								&gotgbot.SendPhotoOpts{
+									Caption: "Scan the above QR code to login to WhatsApp.",
+								},
+							)
+						}
+					}
+					qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
+				} else {
+					logger.Info("received WhatsApp login event",
+						zap.Any("event", evt.Event),
+					)
+				}
 			}
 		}
 	} else {
