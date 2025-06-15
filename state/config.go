@@ -69,6 +69,9 @@ type Config struct {
 		WhatsmeowDebugMode             bool     `yaml:"whatsmeow_debug_mode"`
 		SendMyMessagesFromOtherDevices bool     `yaml:"send_my_messages_from_other_devices"`
 		CreateThreadForInfoUpdates     bool     `yaml:"create_thread_for_info_updates"`
+		// --- NEW FIELDS ---
+		UsePairCode bool   `yaml:"use_pair_code"`
+		PhoneNumber string `yaml:"phone_number"`
 	} `yaml:"whatsapp"`
 
 	Database map[string]string `yaml:"database"`
@@ -132,4 +135,7 @@ func (cfg *Config) SetDefaults() {
 	cfg.WhatsApp.StickerMetadata.AuthorName = "WaTgBridge"
 
 	cfg.Telegram.ConfirmationType = "emoji"
+	// Defaults for new fields
+	cfg.WhatsApp.UsePairCode = false
+	cfg.WhatsApp.PhoneNumber = ""
 }
